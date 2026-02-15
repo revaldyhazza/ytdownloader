@@ -5,18 +5,7 @@ import os
 import tempfile
 import re
 
-# Workaround untuk error 403
-from pytubefix import innertube
-
-def fix_403_error():
-    """Fix untuk error 403 Forbidden"""
-    innertube._default_clients["ANDROID"]["context"]["client"]["clientVersion"] = "19.09.36"
-    innertube._default_clients["IOS"]["context"]["client"]["clientVersion"] = "19.09.36"
-    innertube._default_clients["WEB"]["context"]["client"]["clientVersion"] = "2.20240304.00.00"
-
-fix_403_error()
-
-# Konfigurasi halaman
+# Konfigurasi halaman (pindahkan ke atas sebelum import lainnya)
 st.set_page_config(
     page_title="YouTube Downloader",
     page_icon="🎥",
@@ -197,12 +186,12 @@ def get_video_info(url):
     
     for attempt in range(max_retries):
         try:
+            # Gunakan client ANDROID untuk stabilitas
             yt = YouTube(
                 url, 
                 on_progress_callback=on_progress,
                 use_oauth=False,
-                allow_oauth_cache=True,
-                client='ANDROID'
+                allow_oauth_cache=True
             )
             # Test apakah bisa akses video
             _ = yt.title
@@ -210,6 +199,8 @@ def get_video_info(url):
         except Exception as e:
             if attempt < max_retries - 1:
                 st.warning(f"⏳ Mencoba ulang... ({attempt + 1}/{max_retries})")
+                import time
+                time.sleep(1)  # Delay sebelum retry
                 continue
             else:
                 st.error(f"❌ Error: {str(e)}")
@@ -270,7 +261,7 @@ def get_available_formats(yt):
         return video_formats
     
     except Exception as e:
-        st.error(f"Error: {str(e)}")
+        st.error(f"Error getting formats: {str(e)}")
         return []
 
 
@@ -297,11 +288,14 @@ def download_media(yt, download_type, quality_format=None, format_info=None):
             status_text = st.empty()
             
             def progress_callback(stream, chunk, bytes_remaining):
-                total_size = stream.filesize
-                bytes_downloaded = total_size - bytes_remaining
-                percentage = int((bytes_downloaded / total_size) * 100)
-                progress_bar.progress(percentage)
-                status_text.text(f"📥 Downloading... {percentage}%")
+                try:
+                    total_size = stream.filesize
+                    bytes_downloaded = total_size - bytes_remaining
+                    percentage = int((bytes_downloaded / total_size) * 100)
+                    progress_bar.progress(min(percentage, 100))
+                    status_text.text(f"📥 Downloading... {percentage}%")
+                except:
+                    pass
             
             yt.register_on_progress_callback(progress_callback)
             
@@ -359,11 +353,14 @@ def download_media(yt, download_type, quality_format=None, format_info=None):
             status_text = st.empty()
             
             def progress_callback(stream, chunk, bytes_remaining):
-                total_size = stream.filesize
-                bytes_downloaded = total_size - bytes_remaining
-                percentage = int((bytes_downloaded / total_size) * 100)
-                progress_bar.progress(percentage)
-                status_text.text(f"📥 Downloading... {percentage}%")
+                try:
+                    total_size = stream.filesize
+                    bytes_downloaded = total_size - bytes_remaining
+                    percentage = int((bytes_downloaded / total_size) * 100)
+                    progress_bar.progress(min(percentage, 100))
+                    status_text.text(f"📥 Downloading... {percentage}%")
+                except:
+                    pass
             
             yt.register_on_progress_callback(progress_callback)
             
@@ -403,7 +400,7 @@ def download_media(yt, download_type, quality_format=None, format_info=None):
             ]
             
             try:
-                subprocess.run(cmd, check=True)
+                subprocess.run(cmd, check=True, timeout=300)  # Timeout 5 menit
                 os.remove(video_file)
                 os.remove(audio_file)
                 video_file = output_path
