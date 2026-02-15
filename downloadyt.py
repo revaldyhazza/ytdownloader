@@ -5,7 +5,6 @@ import os
 from pathlib import Path
 import tempfile
 import re
-from moviepy.editor import AudioFileClip
 
 # Konfigurasi halaman
 st.set_page_config(
@@ -17,172 +16,169 @@ st.set_page_config(
 
 # Custom CSS untuk UI yang menarik
 st.markdown("""
-    <style>
-    /* Import Google Fonts */
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-    
-    * {
-        font-family: 'Inter', sans-serif;
-    }
-    
-    /* Main container */
-    .main {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 2rem;
-    }
-    
-    /* Card style */
-    .stApp {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    }
-    
+<style>
+
+/* ===== Google Font - Inter tetap bagus & modern ===== */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+html, body, [class*="css"], [data-testid="stAppViewContainer"] {
+    font-family: 'Inter', system-ui, sans-serif !important;
+}
+
+/* ===== Background - Dark & subtle ===== */
+[data-testid="stAppViewContainer"] {
+    background: #0f0f17;
+    background: 
+        radial-gradient(circle at 10% 20%, rgba(79,70,229,0.08) 0%, transparent 50%),
+        radial-gradient(circle at 90% 80%, rgba(139,92,246,0.06) 0%, transparent 50%),
+        #0f0f17;
+}
+
+/* ===== Mengurangi padding berlebih ===== */
+.block-container {
+    padding-top: 2.5rem !important;
+    padding-bottom: 3rem !important;
+    max-width: 780px !important;   /* biar tidak terlalu lebar di layar besar */
+}
+
+/* ===== Glass Card - lebih subtle & premium ===== */
+.download-card {
+    background: rgba(20, 25, 40, 0.65);
+    backdrop-filter: blur(16px) saturate(180%);
+    -webkit-backdrop-filter: blur(16px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 20px;
+    padding: 2.4rem 2.8rem;
+    box-shadow: 
+        0 8px 32px rgba(0,0,0,0.35),
+        inset 0 1px 1px rgba(255,255,255,0.04);
+    margin: 1.8rem auto;
+    color: #e2e8f0;
+}
+
+/* ===== Header - lebih clean ===== */
+.header {
+    text-align: center;
+    margin-bottom: 2rem;
+}
+
+.header h1 {
+    font-size: 2.4rem;
+    font-weight: 700;
+    letter-spacing: -0.4px;
+    margin-bottom: 0.6rem;
+    background: linear-gradient(90deg, #c084fc, #a78bfa, #7dd3fc);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.header p {
+    color: #94a3b8;
+    font-size: 1.05rem;
+    font-weight: 400;
+}
+
+/* ===== Text Input - clean & modern ===== */
+div[data-testid="stTextInput"] input {
+    border-radius: 12px;
+    border: 1px solid #334155;
+    background: rgba(30, 41, 59, 0.6);
+    color: #e2e8f0;
+    padding: 0.75rem 1rem;
+    font-size: 0.98rem;
+    transition: all 0.2s ease;
+}
+
+div[data-testid="stTextInput"] input:focus {
+    border-color: #a78bfa;
+    box-shadow: 0 0 0 3px rgba(167,139,250,0.18);
+    background: rgba(30, 41, 59, 0.8);
+}
+
+/* ===== Primary Button - lebih elegan ===== */
+div.stButton > button {
+    background: linear-gradient(135deg, #7c3aed, #a855f7);
+    color: white;
+    border: none;
+    border-radius: 12px;
+    padding: 0.78rem 1.4rem;
+    font-weight: 600;
+    font-size: 0.98rem;
+    width: 100%;
+    margin-top: 1.2rem;
+    transition: all 0.22s ease;
+}
+
+div.stButton > button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 25px rgba(168,85,247,0.3);
+    filter: brightness(1.08);
+}
+
+/* ===== Download Button ===== */
+div.stDownloadButton > button {
+    background: linear-gradient(135deg, #10b981, #059669);
+}
+
+div.stDownloadButton > button:hover {
+    box-shadow: 0 10px 25px rgba(16,185,129,0.3);
+}
+
+/* ===== Segmented Radio - modern minimal ===== */
+div[data-testid="stRadio"] [role="radiogroup"] {
+    flex-direction: row !important;
+    background: rgba(30,41,59,0.5);
+    border-radius: 999px;
+    padding: 5px;
+    border: 1px solid rgba(255,255,255,0.06);
+    width: fit-content;
+    margin: 0 auto;
+}
+
+div[data-testid="stRadio"] label {
+    color: #cbd5e1;
+    font-weight: 500;
+    padding: 0.55rem 1.3rem;
+    border-radius: 999px;
+    transition: all 0.18s ease;
+}
+
+div[data-testid="stRadio"] input[type="radio"]:checked + label {
+    background: rgba(255,255,255,0.12);
+    color: white;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+/* ===== Success / Error ===== */
+div.stSuccess, div.stError {
+    border-radius: 12px;
+    padding: 1rem 1.3rem;
+    border: 1px solid;
+}
+
+/* ===== Spinner ===== */
+div.stSpinner > div > div {
+    border-top-color: #a78bfa !important;
+}
+
+/* ===== Hilangkan branding Streamlit ===== */
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+header {visibility: hidden;}
+
+/* Responsive fix kecil */
+@media (max-width: 640px) {
     .download-card {
-        background: white;
-        padding: 2.5rem;
-        border-radius: 20px;
-        box-shadow: 0 20px 60px rgba(0,0,0,0.15);
-        margin: 2rem auto;
-        max-width: 700px;
+        padding: 1.8rem 1.5rem;
+        margin: 1rem;
     }
-    
-    /* Header */
-    .header {
-        text-align: center;
-        margin-bottom: 2rem;
-    }
-    
-    .header h1 {
-        color: #2d3748;
-        font-weight: 700;
-        font-size: 2.5rem;
-        margin-bottom: 0.5rem;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
-    }
-    
-    .header p {
-        color: #718096;
-        font-size: 1.1rem;
-    }
-    
-    /* Input field */
-    .stTextInput input {
-        border-radius: 12px;
-        border: 2px solid #e2e8f0;
-        padding: 1rem;
-        font-size: 1rem;
-        transition: all 0.3s ease;
-    }
-    
-    .stTextInput input:focus {
-        border-color: #667eea;
-        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-    }
-    
-    /* Buttons */
-    .stButton button {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        border: none;
-        border-radius: 12px;
-        padding: 0.75rem 2rem;
-        font-weight: 600;
-        font-size: 1rem;
-        transition: all 0.3s ease;
-        width: 100%;
-        margin-top: 1rem;
-    }
-    
-    .stButton button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 10px 25px rgba(102, 126, 234, 0.3);
-    }
-    
-    /* Radio buttons */
-    .stRadio > label {
-        font-weight: 600;
-        color: #2d3748;
-        font-size: 1.1rem;
-        margin-bottom: 0.5rem;
-    }
-    
-    .stRadio > div {
-        background: #f7fafc;
-        padding: 1rem;
-        border-radius: 12px;
-        border: 2px solid #e2e8f0;
-    }
-    
-    /* Selectbox */
-    .stSelectbox > label {
-        font-weight: 600;
-        color: #2d3748;
-        font-size: 1rem;
-    }
-    
-    .stSelectbox select {
-        border-radius: 12px;
-        border: 2px solid #e2e8f0;
-        padding: 0.75rem;
-    }
-    
-    /* Success/Error messages */
-    .stSuccess {
-        background: #f0fff4;
-        border: 2px solid #68d391;
-        border-radius: 12px;
-        padding: 1rem;
-        color: #22543d;
-    }
-    
-    .stError {
-        background: #fff5f5;
-        border: 2px solid #fc8181;
-        border-radius: 12px;
-        padding: 1rem;
-        color: #742a2a;
-    }
-    
-    /* Info box */
-    .info-box {
-        background: #ebf8ff;
-        border-left: 4px solid #4299e1;
-        padding: 1rem;
-        border-radius: 8px;
-        margin: 1rem 0;
-        color: #2c5282;
-    }
-    
-    /* Download button */
-    .stDownloadButton button {
-        background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
-        color: white;
-        border: none;
-        border-radius: 12px;
-        padding: 0.75rem 2rem;
-        font-weight: 600;
-        font-size: 1rem;
-        width: 100%;
-    }
-    
-    .stDownloadButton button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 10px 25px rgba(72, 187, 120, 0.3);
-    }
-    
-    /* Spinner */
-    .stSpinner > div {
-        border-color: #667eea;
-    }
-    
-    /* Hide Streamlit branding */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-    </style>
+    .header h1 { font-size: 2.1rem; }
+}
+
+</style>
 """, unsafe_allow_html=True)
+
 
 def is_valid_youtube_url(url):
     """Validasi URL YouTube"""
@@ -205,25 +201,43 @@ def get_video_info(url):
 
 def get_available_formats(yt):
     """Mendapatkan format video yang tersedia"""
-    video_streams = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc()
-    audio_streams = yt.streams.filter(only_audio=True, file_extension='mp4').order_by('abr').desc()
-    
     video_formats = []
     audio_formats = []
     
-    # Video formats
+    # Coba progressive dulu (video+audio jadi 1)
+    progressive_streams = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc()
+    
+    # Tambahkan adaptive streams (resolusi tinggi, video only)
+    adaptive_streams = yt.streams.filter(adaptive=True, file_extension='mp4', only_video=True).order_by('resolution').desc()
+    
     seen_resolutions = set()
-    for stream in video_streams:
+    
+    # Progressive streams (biasanya max 720p)
+    for stream in progressive_streams:
         if stream.resolution and stream.resolution not in seen_resolutions:
             seen_resolutions.add(stream.resolution)
             video_formats.append({
                 'itag': stream.itag,
                 'quality': stream.resolution,
                 'fps': stream.fps,
-                'filesize': stream.filesize
+                'filesize': stream.filesize,
+                'type': 'progressive'
+            })
+    
+    # Adaptive streams (bisa 1080p, 1440p, 4K)
+    for stream in adaptive_streams:
+        if stream.resolution and stream.resolution not in seen_resolutions:
+            seen_resolutions.add(stream.resolution)
+            video_formats.append({
+                'itag': stream.itag,
+                'quality': stream.resolution,
+                'fps': stream.fps,
+                'filesize': stream.filesize,
+                'type': 'adaptive'
             })
     
     # Audio formats
+    audio_streams = yt.streams.filter(only_audio=True, file_extension='mp4').order_by('abr').desc()
     seen_abr = set()
     for stream in audio_streams:
         if stream.abr and stream.abr not in seen_abr:
@@ -234,16 +248,22 @@ def get_available_formats(yt):
                 'filesize': stream.filesize
             })
     
+    # Sort video formats by resolution (descending)
+    def get_resolution_number(quality):
+        return int(quality.replace('p', ''))
+    
+    video_formats.sort(key=lambda x: get_resolution_number(x['quality']), reverse=True)
+    
     return video_formats, audio_formats
 
-def download_media(yt, download_type, quality_format=None):
+def download_media(yt, download_type, quality_format=None, format_info=None):
     """Download video atau audio"""
     temp_dir = tempfile.gettempdir()
     
     try:
         if download_type == "🎵 Audio (MP3)":
-            # Download audio
-            audio_stream = yt.streams.filter(only_audio=True, file_extension='mp4').first()
+            # Download audio langsung sebagai mp4 dulu
+            audio_stream = yt.streams.filter(only_audio=True).order_by('abr').desc().first()
             
             # Progress bar
             progress_bar = st.progress(0)
@@ -254,33 +274,44 @@ def download_media(yt, download_type, quality_format=None):
                 bytes_downloaded = total_size - bytes_remaining
                 percentage = int((bytes_downloaded / total_size) * 100)
                 progress_bar.progress(percentage)
-                status_text.text(f"Downloading... {percentage}%")
+                status_text.text(f"📥 Downloading... {percentage}%")
             
             yt.register_on_progress_callback(progress_callback)
             
             # Download
-            audio_file = audio_stream.download(output_path=temp_dir, filename="temp_audio.mp4")
+            status_text.text("📥 Starting download...")
+            output_file = audio_stream.download(output_path=temp_dir)
             
-            # Convert to MP3
-            status_text.text("Converting to MP3...")
-            mp3_file = os.path.join(temp_dir, f"{yt.title}.mp3")
-            audio_clip = AudioFileClip(audio_file)
-            audio_clip.write_audiofile(mp3_file, codec='mp3', bitrate=f"{quality_format if quality_format else '192'}k", verbose=False, logger=None)
-            audio_clip.close()
-            
-            # Hapus file temporary
-            os.remove(audio_file)
+            # Rename ke .mp3 (file audio mp4 bisa langsung direname ke mp3)
+            mp3_file = output_file.replace('.mp4', '.mp3').replace('.webm', '.mp3')
+            if output_file != mp3_file:
+                os.rename(output_file, mp3_file)
+                output_file = mp3_file
             
             progress_bar.progress(100)
-            status_text.text("Done!")
+            status_text.text("✅ Done!")
             
-            return mp3_file, yt.title
+            return output_file, yt.title
         else:
             # Download video
+            video_stream = None
+            is_adaptive = format_info and format_info.get('type') == 'adaptive'
+            
             if quality_format:
+                # Coba progressive dulu
                 video_stream = yt.streams.filter(progressive=True, file_extension='mp4', resolution=quality_format).first()
-            else:
+                
+                # Kalau gak ada, coba adaptive
+                if not video_stream:
+                    video_stream = yt.streams.filter(adaptive=True, file_extension='mp4', resolution=quality_format, only_video=True).first()
+                    is_adaptive = True
+            
+            # Fallback ke kualitas terbaik
+            if not video_stream:
                 video_stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
+                if not video_stream:
+                    video_stream = yt.streams.filter(adaptive=True, file_extension='mp4', only_video=True).order_by('resolution').desc().first()
+                    is_adaptive = True
             
             if not video_stream:
                 return None, "Format tidak tersedia"
@@ -294,15 +325,44 @@ def download_media(yt, download_type, quality_format=None):
                 bytes_downloaded = total_size - bytes_remaining
                 percentage = int((bytes_downloaded / total_size) * 100)
                 progress_bar.progress(percentage)
-                status_text.text(f"Downloading... {percentage}%")
+                status_text.text(f"📥 Downloading video... {percentage}%")
             
             yt.register_on_progress_callback(progress_callback)
             
-            # Download
-            video_file = video_stream.download(output_path=temp_dir)
+            # Download video
+            status_text.text("📥 Downloading video...")
+            video_file = video_stream.download(output_path=temp_dir, filename_prefix="video_")
+            
+            # Kalau adaptive, perlu download audio dan merge
+            if is_adaptive:
+                status_text.text("📥 Downloading audio...")
+                audio_stream = yt.streams.filter(only_audio=True).order_by('abr').desc().first()
+                audio_file = audio_stream.download(output_path=temp_dir, filename_prefix="audio_")
+                
+                # Merge menggunakan ffmpeg
+                status_text.text("🔄 Merging video and audio...")
+                output_filename = f"{yt.title}.mp4"
+                # Bersihkan nama file dari karakter ilegal
+                output_filename = "".join(c for c in output_filename if c.isalnum() or c in (' ', '-', '_', '.')).rstrip()
+                output_path = os.path.join(temp_dir, output_filename)
+                
+                # Gunakan ffmpeg untuk merge
+                import subprocess
+                cmd = f'ffmpeg -i "{video_file}" -i "{audio_file}" -c copy "{output_path}" -y -loglevel quiet'
+                
+                try:
+                    subprocess.run(cmd, shell=True, check=True)
+                    # Hapus file temporary
+                    os.remove(video_file)
+                    os.remove(audio_file)
+                    video_file = output_path
+                except:
+                    # Kalau ffmpeg gagal, return video aja (tanpa audio)
+                    status_text.text("⚠️ Merging failed, returning video only")
+                    pass
             
             progress_bar.progress(100)
-            status_text.text("Done!")
+            status_text.text("✅ Done!")
             
             return video_file, yt.title
             
@@ -357,15 +417,32 @@ if url:
                     video_formats, _ = get_available_formats(yt)
                     
                     if video_formats:
-                        quality_options = [f['quality'] for f in video_formats]
-                        selected_quality = st.selectbox(
+                        # Tampilkan info ukuran file jika ada
+                        quality_display = []
+                        for f in video_formats:
+                            size_mb = f.get('filesize', 0) / (1024 * 1024) if f.get('filesize') else 0
+                            if size_mb > 0:
+                                quality_display.append(f"{f['quality']} (~{size_mb:.1f} MB)")
+                            else:
+                                quality_display.append(f['quality'])
+                        
+                        selected_index = st.selectbox(
                             "Pilih kualitas video:",
-                            quality_options,
-                            help="Kualitas yang lebih tinggi = ukuran file lebih besar"
+                            range(len(quality_display)),
+                            format_func=lambda i: quality_display[i],
+                            help="Kualitas yang lebih tinggi = ukuran file lebih besar. Resolusi >720p membutuhkan ffmpeg."
                         )
+                        
+                        selected_format = video_formats[selected_index]
+                        selected_quality = selected_format['quality']
+                        
+                        # Info jika butuh merge
+                        if selected_format.get('type') == 'adaptive':
+                            st.info("ℹ️ Resolusi ini membutuhkan penggabungan video dan audio")
                     else:
                         selected_quality = None
-                        st.info("Menggunakan kualitas terbaik yang tersedia")
+                        selected_format = None
+                        st.info("📺 Menggunakan kualitas terbaik yang tersedia")
                 else:
                     audio_qualities = ["320", "256", "192", "128"]
                     selected_quality = st.selectbox(
@@ -378,10 +455,12 @@ if url:
                 
                 # Tombol download
                 if st.button("⬇️ Download Sekarang", type="primary"):
+                    format_info = selected_format if download_type == "🎬 Video (MP4)" else None
                     filename, title = download_media(
                         yt, 
                         download_type, 
-                        selected_quality
+                        selected_quality,
+                        format_info
                     )
                     
                     if filename and os.path.exists(filename):
@@ -422,7 +501,7 @@ st.markdown("""
             💡 <strong>Tips:</strong> Pilih kualitas yang lebih rendah untuk download lebih cepat dan ukuran file lebih kecil
         </p>
         <p style='font-size: 0.8rem; opacity: 0.6; margin-top: 1rem;'>
-            Dibuat dengan ❤️ menggunakan Streamlit • yt-dlp
+            Streamlit | Revaldy Hazza Daniswara
         </p>
     </div>
 """, unsafe_allow_html=True)
