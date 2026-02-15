@@ -1,11 +1,11 @@
 import streamlit as st
-from pytubefix import YouTube
-from pytubefix.cli import on_progress
+import yt_dlp
 import os
 import tempfile
 import re
+import json
 
-# Konfigurasi halaman (pindahkan ke atas sebelum import lainnya)
+# Konfigurasi halaman
 st.set_page_config(
     page_title="YouTube Downloader",
     page_icon="🎥",
@@ -34,20 +34,6 @@ html, body, [class*="css"], [data-testid="stAppViewContainer"] {
     padding-top: 2.5rem !important;
     padding-bottom: 3rem !important;
     max-width: 780px !important;
-}
-
-.download-card {
-    background: rgba(20, 25, 40, 0.65);
-    backdrop-filter: blur(16px) saturate(180%);
-    -webkit-backdrop-filter: blur(16px) saturate(180%);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 20px;
-    padding: 2.4rem 2.8rem;
-    box-shadow: 
-        0 8px 32px rgba(0,0,0,0.35),
-        inset 0 1px 1px rgba(255,255,255,0.04);
-    margin: 1.8rem auto;
-    color: #e2e8f0;
 }
 
 .header {
@@ -160,7 +146,7 @@ footer {visibility: hidden;}
 header {visibility: hidden;}
 
 @media (max-width: 640px) {
-    .download-card {
+    .block-container {
         padding: 1.8rem 1.5rem;
         margin: 1rem;
     }
@@ -181,237 +167,149 @@ def is_valid_youtube_url(url):
 
 
 def get_video_info(url):
-    """Mendapatkan informasi video dengan retry mechanism"""
-    max_retries = 3
-    
-    for attempt in range(max_retries):
-        try:
-            # Gunakan client ANDROID untuk stabilitas
-            yt = YouTube(
-                url, 
-                on_progress_callback=on_progress,
-                use_oauth=False,
-                allow_oauth_cache=True
-            )
-            # Test apakah bisa akses video
-            _ = yt.title
-            return yt
-        except Exception as e:
-            if attempt < max_retries - 1:
-                st.warning(f"⏳ Mencoba ulang... ({attempt + 1}/{max_retries})")
-                import time
-                time.sleep(1)  # Delay sebelum retry
-                continue
-            else:
-                st.error(f"❌ Error: {str(e)}")
-                return None
+    """Mendapatkan informasi video"""
+    try:
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'extract_flat': False,
+            'skip_download': True,
+        }
+        
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            return info
+    except Exception as e:
+        st.error(f"❌ Error: {str(e)}")
+        return None
 
 
-def get_available_formats(yt):
+def format_filesize(bytes_size):
+    """Format ukuran file ke MB"""
+    if bytes_size:
+        return f"{bytes_size / (1024 * 1024):.1f} MB"
+    return "N/A"
+
+
+def get_available_formats(info):
     """Mendapatkan format video yang tersedia"""
     video_formats = []
+    formats = info.get('formats', [])
     
-    try:
-        # Progressive streams (video + audio, lebih cepat!)
-        progressive_streams = yt.streams.filter(
-            progressive=True, 
-            file_extension='mp4'
-        ).order_by('resolution').desc()
-        
-        seen_resolutions = set()
-        
-        for stream in progressive_streams:
-            if stream.resolution and stream.resolution not in seen_resolutions:
-                seen_resolutions.add(stream.resolution)
-                video_formats.append({
-                    'itag': stream.itag,
-                    'quality': stream.resolution,
-                    'fps': stream.fps,
-                    'filesize': stream.filesize,
-                    'type': 'progressive'
-                })
-        
-        # Adaptive streams (resolusi tinggi, tapi perlu merge)
-        adaptive_streams = yt.streams.filter(
-            adaptive=True, 
-            file_extension='mp4', 
-            only_video=True
-        ).order_by('resolution').desc()
-        
-        for stream in adaptive_streams:
-            if stream.resolution and stream.resolution not in seen_resolutions:
-                height = int(stream.resolution.replace('p', ''))
-                # Batasi sampai 1080p untuk performa
-                if height <= 1080:
-                    seen_resolutions.add(stream.resolution)
-                    video_formats.append({
-                        'itag': stream.itag,
-                        'quality': stream.resolution,
-                        'fps': stream.fps,
-                        'filesize': stream.filesize,
-                        'type': 'adaptive'
-                    })
-        
-        # Sort by resolution
-        video_formats.sort(
-            key=lambda x: int(x['quality'].replace('p', '')), 
-            reverse=True
-        )
-        
-        return video_formats
+    seen_resolutions = {}
     
-    except Exception as e:
-        st.error(f"Error getting formats: {str(e)}")
-        return []
+    for f in formats:
+        height = f.get('height')
+        vcodec = f.get('vcodec', 'none')
+        acodec = f.get('acodec', 'none')
+        ext = f.get('ext', '')
+        
+        # Filter: hanya video dengan codec valid dan extension mp4/webm
+        if height and vcodec != 'none' and ext in ['mp4', 'webm']:
+            quality = f"{height}p"
+            filesize = f.get('filesize') or f.get('filesize_approx', 0)
+            
+            # Prioritas: progressive (video+audio) > adaptive video only
+            has_audio = acodec != 'none'
+            
+            # Simpan format terbaik per resolusi
+            if quality not in seen_resolutions or (has_audio and not seen_resolutions[quality].get('has_audio')):
+                seen_resolutions[quality] = {
+                    'quality': quality,
+                    'height': height,
+                    'filesize': filesize,
+                    'has_audio': has_audio,
+                    'ext': ext
+                }
+    
+    # Convert ke list dan sort
+    video_formats = list(seen_resolutions.values())
+    video_formats.sort(key=lambda x: x['height'], reverse=True)
+    
+    return video_formats
 
 
-def download_media(yt, download_type, quality_format=None, format_info=None):
+def download_media(url, download_type, quality_format=None):
     """Download video atau audio"""
     temp_dir = tempfile.gettempdir()
     
     try:
         if download_type == "🎵 Audio (MP3)":
-            # Download audio
-            audio_stream = yt.streams.filter(
-                only_audio=True,
-                file_extension='mp4'
-            ).order_by('abr').desc().first()
-            
-            if not audio_stream:
-                audio_stream = yt.streams.filter(only_audio=True).first()
-            
-            if not audio_stream:
-                return None, "Format audio tidak tersedia"
-            
-            # Progress bar
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            
-            def progress_callback(stream, chunk, bytes_remaining):
-                try:
-                    total_size = stream.filesize
-                    bytes_downloaded = total_size - bytes_remaining
-                    percentage = int((bytes_downloaded / total_size) * 100)
-                    progress_bar.progress(min(percentage, 100))
-                    status_text.text(f"📥 Downloading... {percentage}%")
-                except:
-                    pass
-            
-            yt.register_on_progress_callback(progress_callback)
-            
-            status_text.text("📥 Starting download...")
-            output_file = audio_stream.download(output_path=temp_dir)
-            
-            # Rename ke .mp3
-            mp3_file = output_file.rsplit('.', 1)[0] + '.mp3'
-            if output_file != mp3_file:
-                os.rename(output_file, mp3_file)
-                output_file = mp3_file
-            
-            progress_bar.progress(100)
-            status_text.text("✅ Done!")
-            
-            return output_file, yt.title
-        
+            # Konfigurasi untuk audio
+            ydl_opts = {
+                'format': 'bestaudio/best',
+                'outtmpl': os.path.join(temp_dir, '%(title)s.%(ext)s'),
+                'postprocessors': [{
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': 'mp3',
+                    'preferredquality': '192',
+                }],
+                'quiet': False,
+                'no_warnings': True,
+            }
         else:
-            # Download video
-            video_stream = None
-            is_progressive = False
-            
+            # Konfigurasi untuk video
             if quality_format:
-                # Prioritas progressive (lebih cepat!)
-                video_stream = yt.streams.filter(
-                    progressive=True, 
-                    file_extension='mp4', 
-                    resolution=quality_format
-                ).first()
-                
-                if video_stream:
-                    is_progressive = True
-                else:
-                    # Kalau tidak ada, coba adaptive
-                    if format_info and format_info.get('type') == 'adaptive':
-                        video_stream = yt.streams.filter(
-                            adaptive=True, 
-                            file_extension='mp4', 
-                            resolution=quality_format, 
-                            only_video=True
-                        ).first()
+                height = quality_format.replace('p', '')
+                # Format: pilih video dengan height yang sesuai + audio terbaik
+                format_str = f'bestvideo[height<={height}][ext=mp4]+bestaudio[ext=m4a]/best[height<={height}]'
             else:
-                # Default: progressive terbaik
-                video_stream = yt.streams.filter(
-                    progressive=True, 
-                    file_extension='mp4'
-                ).order_by('resolution').desc().first()
-                is_progressive = True
+                format_str = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best'
             
-            if not video_stream:
-                return None, "Format tidak tersedia"
-            
-            # Progress bar
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            
-            def progress_callback(stream, chunk, bytes_remaining):
-                try:
-                    total_size = stream.filesize
-                    bytes_downloaded = total_size - bytes_remaining
-                    percentage = int((bytes_downloaded / total_size) * 100)
+            ydl_opts = {
+                'format': format_str,
+                'outtmpl': os.path.join(temp_dir, '%(title)s.%(ext)s'),
+                'merge_output_format': 'mp4',
+                'quiet': False,
+                'no_warnings': True,
+            }
+        
+        # Progress tracking
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        downloaded_bytes = [0]  # Gunakan list agar bisa dimodifikasi di nested function
+        total_bytes = [0]
+        
+        def progress_hook(d):
+            if d['status'] == 'downloading':
+                total = d.get('total_bytes') or d.get('total_bytes_estimate', 0)
+                downloaded = d.get('downloaded_bytes', 0)
+                
+                if total > 0:
+                    downloaded_bytes[0] = downloaded
+                    total_bytes[0] = total
+                    percentage = int((downloaded / total) * 100)
                     progress_bar.progress(min(percentage, 100))
                     status_text.text(f"📥 Downloading... {percentage}%")
-                except:
-                    pass
+                else:
+                    # Fallback jika total tidak diketahui
+                    mb = downloaded / (1024 * 1024)
+                    status_text.text(f"📥 Downloading... {mb:.1f} MB")
             
-            yt.register_on_progress_callback(progress_callback)
+            elif d['status'] == 'finished':
+                status_text.text("🔄 Processing...")
+        
+        ydl_opts['progress_hooks'] = [progress_hook]
+        
+        # Download
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
             
-            status_text.text("📥 Downloading video...")
-            video_file = video_stream.download(output_path=temp_dir)
+            # Get filename
+            base_filename = ydl.prepare_filename(info)
             
-            # Kalau progressive, langsung selesai
-            if is_progressive:
-                progress_bar.progress(100)
-                status_text.text("✅ Done!")
-                return video_file, yt.title
-            
-            # Kalau adaptive, perlu merge
-            status_text.text("📥 Downloading audio...")
-            audio_stream = yt.streams.filter(
-                only_audio=True
-            ).order_by('abr').desc().first()
-            
-            audio_file = audio_stream.download(
-                output_path=temp_dir, 
-                filename_prefix="audio_"
-            )
-            
-            # Merge dengan ffmpeg
-            status_text.text("🔄 Merging video and audio...")
-            output_filename = f"{yt.title}.mp4"
-            output_filename = "".join(
-                c for c in output_filename 
-                if c.isalnum() or c in (' ', '-', '_', '.')
-            ).rstrip()
-            output_path = os.path.join(temp_dir, output_filename)
-            
-            import subprocess
-            cmd = [
-                'ffmpeg', '-i', video_file, '-i', audio_file,
-                '-c', 'copy', output_path, '-y', '-loglevel', 'quiet'
-            ]
-            
-            try:
-                subprocess.run(cmd, check=True, timeout=300)  # Timeout 5 menit
-                os.remove(video_file)
-                os.remove(audio_file)
-                video_file = output_path
-            except Exception as merge_error:
-                status_text.warning("⚠️ Merge gagal, returning video only (tanpa audio)")
+            # Untuk audio, ekstensi akan berubah ke .mp3
+            if download_type == "🎵 Audio (MP3)":
+                filename = base_filename.rsplit('.', 1)[0] + '.mp3'
+            else:
+                filename = base_filename
             
             progress_bar.progress(100)
             status_text.text("✅ Done!")
             
-            return video_file, yt.title
-            
+            return filename, info.get('title', 'video')
+    
     except Exception as e:
         return None, str(e)
 
@@ -436,21 +334,24 @@ url = st.text_input(
 if url:
     if is_valid_youtube_url(url):
         with st.spinner("🔍 Mengambil informasi video..."):
-            yt = get_video_info(url)
+            info = get_video_info(url)
             
-            if yt:
+            if info:
                 # Preview video
                 col1, col2 = st.columns([1, 2])
                 
                 with col1:
-                    if yt.thumbnail_url:
-                        st.image(yt.thumbnail_url, use_container_width=True)
+                    thumbnail = info.get('thumbnail')
+                    if thumbnail:
+                        st.image(thumbnail, use_container_width=True)
                 
                 with col2:
-                    st.markdown(f"**{yt.title}**")
-                    st.caption(f"👤 {yt.author}")
-                    st.caption(f"⏱️ Durasi: {yt.length // 60} menit {yt.length % 60} detik")
-                    st.caption(f"👁️ {yt.views:,} views")
+                    st.markdown(f"**{info.get('title', 'Unknown')}**")
+                    st.caption(f"👤 {info.get('uploader', 'Unknown')}")
+                    duration = info.get('duration', 0)
+                    st.caption(f"⏱️ Durasi: {duration // 60} menit {duration % 60} detik")
+                    views = info.get('view_count', 0)
+                    st.caption(f"👁️ {views:,} views")
                 
                 st.markdown("---")
                 
@@ -462,49 +363,34 @@ if url:
                 )
                 
                 selected_quality = None
-                selected_format = None
                 
                 # Pilih kualitas
                 if download_type == "🎬 Video (MP4)":
-                    video_formats = get_available_formats(yt)
+                    video_formats = get_available_formats(info)
                     
                     if video_formats:
                         quality_display = []
                         for f in video_formats:
-                            size_mb = f.get('filesize', 0) / (1024 * 1024) if f.get('filesize') else 0
-                            speed_icon = "⚡" if f['type'] == 'progressive' else "🐌"
-                            
-                            if size_mb > 0:
-                                quality_display.append(
-                                    f"{speed_icon} {f['quality']} (~{size_mb:.1f} MB)"
-                                )
-                            else:
-                                quality_display.append(f"{speed_icon} {f['quality']}")
+                            size = format_filesize(f['filesize'])
+                            audio_icon = "🔊" if f['has_audio'] else "🔇"
+                            quality_display.append(
+                                f"{audio_icon} {f['quality']} (~{size})"
+                            )
                         
                         selected_index = st.selectbox(
                             "Pilih kualitas video:",
                             range(len(quality_display)),
                             format_func=lambda i: quality_display[i],
-                            help="⚡ = Download cepat (sudah include audio)\n🐌 = Download lambat (perlu merge audio)"
+                            help="🔊 = Sudah include audio\n🔇 = Perlu merge audio (otomatis)"
                         )
                         
-                        selected_format = video_formats[selected_index]
-                        selected_quality = selected_format['quality']
-                        
-                        # Info tambahan
-                        if selected_format['type'] == 'adaptive':
-                            st.info("ℹ️ Resolusi ini membutuhkan penggabungan video dan audio (lebih lama)")
+                        selected_quality = video_formats[selected_index]['quality']
                     else:
                         st.info("📺 Menggunakan kualitas terbaik yang tersedia")
                 
                 # Tombol download
                 if st.button("⬇️ Download Sekarang", type="primary"):
-                    filename, title = download_media(
-                        yt, 
-                        download_type, 
-                        selected_quality,
-                        selected_format
-                    )
+                    filename, title = download_media(url, download_type, selected_quality)
                     
                     if filename and os.path.exists(filename):
                         # Baca file
@@ -514,6 +400,8 @@ if url:
                         # Tentukan nama file
                         file_ext = '.mp3' if download_type == "🎵 Audio (MP3)" else '.mp4'
                         download_filename = f"{title}{file_ext}"
+                        
+                        # Clean filename
                         download_filename = "".join(
                             c for c in download_filename 
                             if c.isalnum() or c in (' ', '-', '_', '.')
@@ -521,7 +409,6 @@ if url:
                         
                         st.success("✅ Download berhasil!")
                         
-                        # Tombol download
                         st.download_button(
                             label=f"💾 Simpan {download_filename}",
                             data=file_data,
@@ -546,7 +433,7 @@ st.markdown("---")
 st.markdown("""
     <div style='text-align: center; color: #94a3b8; padding: 2rem;'>
         <p style='font-size: 0.9rem;'>
-            💡 <strong>Tips:</strong> Pilih format dengan ⚡ untuk download lebih cepat
+            💡 <strong>Tips:</strong> Pilih format dengan 🔊 untuk hasil terbaik
         </p>
         <p style='font-size: 0.85rem; opacity: 0.7; margin-top: 1rem;'>
             Made with ❤️ using Streamlit | Revaldy Hazza Daniswara
