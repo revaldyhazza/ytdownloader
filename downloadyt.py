@@ -2,22 +2,20 @@ import streamlit as st
 from pytubefix import YouTube
 from pytubefix.cli import on_progress
 import os
-from pathlib import Path
 import tempfile
 import re
-import pytubefix
-from pytubefix import innertube
 
 # Workaround untuk error 403
+from pytubefix import innertube
+
 def fix_403_error():
     """Fix untuk error 403 Forbidden"""
-    # Update client version yang lebih baru
     innertube._default_clients["ANDROID"]["context"]["client"]["clientVersion"] = "19.09.36"
     innertube._default_clients["IOS"]["context"]["client"]["clientVersion"] = "19.09.36"
     innertube._default_clients["WEB"]["context"]["client"]["clientVersion"] = "2.20240304.00.00"
 
-# Panggil fix di awal
 fix_403_error()
+
 # Konfigurasi halaman
 st.set_page_config(
     page_title="YouTube Downloader",
@@ -26,18 +24,15 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Custom CSS untuk UI yang menarik
+# Custom CSS
 st.markdown("""
 <style>
-
-/* ===== Google Font - Inter tetap bagus & modern ===== */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
 html, body, [class*="css"], [data-testid="stAppViewContainer"] {
     font-family: 'Inter', system-ui, sans-serif !important;
 }
 
-/* ===== Background - Dark & subtle ===== */
 [data-testid="stAppViewContainer"] {
     background: #0f0f17;
     background: 
@@ -46,14 +41,12 @@ html, body, [class*="css"], [data-testid="stAppViewContainer"] {
         #0f0f17;
 }
 
-/* ===== Mengurangi padding berlebih ===== */
 .block-container {
     padding-top: 2.5rem !important;
     padding-bottom: 3rem !important;
-    max-width: 780px !important;   /* biar tidak terlalu lebar di layar besar */
+    max-width: 780px !important;
 }
 
-/* ===== Glass Card - lebih subtle & premium ===== */
 .download-card {
     background: rgba(20, 25, 40, 0.65);
     backdrop-filter: blur(16px) saturate(180%);
@@ -68,7 +61,6 @@ html, body, [class*="css"], [data-testid="stAppViewContainer"] {
     color: #e2e8f0;
 }
 
-/* ===== Header - lebih clean ===== */
 .header {
     text-align: center;
     margin-bottom: 2rem;
@@ -91,7 +83,6 @@ html, body, [class*="css"], [data-testid="stAppViewContainer"] {
     font-weight: 400;
 }
 
-/* ===== Text Input - clean & modern ===== */
 div[data-testid="stTextInput"] input {
     border-radius: 12px;
     border: 1px solid #334155;
@@ -108,7 +99,6 @@ div[data-testid="stTextInput"] input:focus {
     background: rgba(30, 41, 59, 0.8);
 }
 
-/* ===== Primary Button - lebih elegan ===== */
 div.stButton > button {
     background: linear-gradient(135deg, #7c3aed, #a855f7);
     color: white;
@@ -128,16 +118,21 @@ div.stButton > button:hover {
     filter: brightness(1.08);
 }
 
-/* ===== Download Button ===== */
 div.stDownloadButton > button {
-    background: linear-gradient(135deg, #10b981, #059669);
+    background: linear-gradient(135deg, #10b981, #059669) !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 12px !important;
+    padding: 0.78rem 1.4rem !important;
+    font-weight: 600 !important;
+    width: 100% !important;
 }
 
 div.stDownloadButton > button:hover {
-    box-shadow: 0 10px 25px rgba(16,185,129,0.3);
+    box-shadow: 0 10px 25px rgba(16,185,129,0.3) !important;
+    transform: translateY(-1px) !important;
 }
 
-/* ===== Segmented Radio - modern minimal ===== */
 div[data-testid="stRadio"] [role="radiogroup"] {
     flex-direction: row !important;
     background: rgba(30,41,59,0.5);
@@ -162,24 +157,19 @@ div[data-testid="stRadio"] input[type="radio"]:checked + label {
     box-shadow: 0 2px 8px rgba(0,0,0,0.2);
 }
 
-/* ===== Success / Error ===== */
-div.stSuccess, div.stError {
+div.stSuccess, div.stError, div.stInfo, div.stWarning {
     border-radius: 12px;
     padding: 1rem 1.3rem;
-    border: 1px solid;
 }
 
-/* ===== Spinner ===== */
 div.stSpinner > div > div {
     border-top-color: #a78bfa !important;
 }
 
-/* ===== Hilangkan branding Streamlit ===== */
 #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
 header {visibility: hidden;}
 
-/* Responsive fix kecil */
 @media (max-width: 640px) {
     .download-card {
         padding: 1.8rem 1.5rem;
@@ -187,7 +177,6 @@ header {visibility: hidden;}
     }
     .header h1 { font-size: 2.1rem; }
 }
-
 </style>
 """, unsafe_allow_html=True)
 
@@ -199,74 +188,91 @@ def is_valid_youtube_url(url):
         '(youtube|youtu|youtube-nocookie)\.(com|be)/'
         '(watch\?v=|embed/|v/|.+\?v=)?([^&=%\?]{11})')
     
-    youtube_regex_match = re.match(youtube_regex, url)
-    return youtube_regex_match is not None
+    return re.match(youtube_regex, url) is not None
+
 
 def get_video_info(url):
-    """Mendapatkan informasi video"""
-    try:
-        yt = YouTube(url, on_progress_callback=on_progress)
-        return yt
-    except Exception as e:
-        st.error(f"Error: {str(e)}")
-        return None
+    """Mendapatkan informasi video dengan retry mechanism"""
+    max_retries = 3
+    
+    for attempt in range(max_retries):
+        try:
+            yt = YouTube(
+                url, 
+                on_progress_callback=on_progress,
+                use_oauth=False,
+                allow_oauth_cache=True,
+                client='ANDROID'
+            )
+            # Test apakah bisa akses video
+            _ = yt.title
+            return yt
+        except Exception as e:
+            if attempt < max_retries - 1:
+                st.warning(f"⏳ Mencoba ulang... ({attempt + 1}/{max_retries})")
+                continue
+            else:
+                st.error(f"❌ Error: {str(e)}")
+                return None
+
 
 def get_available_formats(yt):
     """Mendapatkan format video yang tersedia"""
     video_formats = []
-    audio_formats = []
     
-    # Coba progressive dulu (video+audio jadi 1)
-    progressive_streams = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc()
+    try:
+        # Progressive streams (video + audio, lebih cepat!)
+        progressive_streams = yt.streams.filter(
+            progressive=True, 
+            file_extension='mp4'
+        ).order_by('resolution').desc()
+        
+        seen_resolutions = set()
+        
+        for stream in progressive_streams:
+            if stream.resolution and stream.resolution not in seen_resolutions:
+                seen_resolutions.add(stream.resolution)
+                video_formats.append({
+                    'itag': stream.itag,
+                    'quality': stream.resolution,
+                    'fps': stream.fps,
+                    'filesize': stream.filesize,
+                    'type': 'progressive'
+                })
+        
+        # Adaptive streams (resolusi tinggi, tapi perlu merge)
+        adaptive_streams = yt.streams.filter(
+            adaptive=True, 
+            file_extension='mp4', 
+            only_video=True
+        ).order_by('resolution').desc()
+        
+        for stream in adaptive_streams:
+            if stream.resolution and stream.resolution not in seen_resolutions:
+                height = int(stream.resolution.replace('p', ''))
+                # Batasi sampai 1080p untuk performa
+                if height <= 1080:
+                    seen_resolutions.add(stream.resolution)
+                    video_formats.append({
+                        'itag': stream.itag,
+                        'quality': stream.resolution,
+                        'fps': stream.fps,
+                        'filesize': stream.filesize,
+                        'type': 'adaptive'
+                    })
+        
+        # Sort by resolution
+        video_formats.sort(
+            key=lambda x: int(x['quality'].replace('p', '')), 
+            reverse=True
+        )
+        
+        return video_formats
     
-    # Tambahkan adaptive streams (resolusi tinggi, video only)
-    adaptive_streams = yt.streams.filter(adaptive=True, file_extension='mp4', only_video=True).order_by('resolution').desc()
-    
-    seen_resolutions = set()
-    
-    # Progressive streams (biasanya max 720p)
-    for stream in progressive_streams:
-        if stream.resolution and stream.resolution not in seen_resolutions:
-            seen_resolutions.add(stream.resolution)
-            video_formats.append({
-                'itag': stream.itag,
-                'quality': stream.resolution,
-                'fps': stream.fps,
-                'filesize': stream.filesize,
-                'type': 'progressive'
-            })
-    
-    # Adaptive streams (bisa 1080p, 1440p, 4K)
-    for stream in adaptive_streams:
-        if stream.resolution and stream.resolution not in seen_resolutions:
-            seen_resolutions.add(stream.resolution)
-            video_formats.append({
-                'itag': stream.itag,
-                'quality': stream.resolution,
-                'fps': stream.fps,
-                'filesize': stream.filesize,
-                'type': 'adaptive'
-            })
-    
-    # Audio formats
-    audio_streams = yt.streams.filter(only_audio=True, file_extension='mp4').order_by('abr').desc()
-    seen_abr = set()
-    for stream in audio_streams:
-        if stream.abr and stream.abr not in seen_abr:
-            seen_abr.add(stream.abr)
-            audio_formats.append({
-                'itag': stream.itag,
-                'quality': stream.abr,
-                'filesize': stream.filesize
-            })
-    
-    # Sort video formats by resolution (descending)
-    def get_resolution_number(quality):
-        return int(quality.replace('p', ''))
-    
-    video_formats.sort(key=lambda x: get_resolution_number(x['quality']), reverse=True)
-    
-    return video_formats, audio_formats
+    except Exception as e:
+        st.error(f"Error: {str(e)}")
+        return []
+
 
 def download_media(yt, download_type, quality_format=None, format_info=None):
     """Download video atau audio"""
@@ -274,8 +280,17 @@ def download_media(yt, download_type, quality_format=None, format_info=None):
     
     try:
         if download_type == "🎵 Audio (MP3)":
-            # Download audio langsung sebagai mp4 dulu
-            audio_stream = yt.streams.filter(only_audio=True).order_by('abr').desc().first()
+            # Download audio
+            audio_stream = yt.streams.filter(
+                only_audio=True,
+                file_extension='mp4'
+            ).order_by('abr').desc().first()
+            
+            if not audio_stream:
+                audio_stream = yt.streams.filter(only_audio=True).first()
+            
+            if not audio_stream:
+                return None, "Format audio tidak tersedia"
             
             # Progress bar
             progress_bar = st.progress(0)
@@ -290,12 +305,11 @@ def download_media(yt, download_type, quality_format=None, format_info=None):
             
             yt.register_on_progress_callback(progress_callback)
             
-            # Download
             status_text.text("📥 Starting download...")
             output_file = audio_stream.download(output_path=temp_dir)
             
-            # Rename ke .mp3 (file audio mp4 bisa langsung direname ke mp3)
-            mp3_file = output_file.replace('.mp4', '.mp3').replace('.webm', '.mp3')
+            # Rename ke .mp3
+            mp3_file = output_file.rsplit('.', 1)[0] + '.mp3'
             if output_file != mp3_file:
                 os.rename(output_file, mp3_file)
                 output_file = mp3_file
@@ -304,26 +318,38 @@ def download_media(yt, download_type, quality_format=None, format_info=None):
             status_text.text("✅ Done!")
             
             return output_file, yt.title
+        
         else:
             # Download video
             video_stream = None
-            is_adaptive = format_info and format_info.get('type') == 'adaptive'
+            is_progressive = False
             
             if quality_format:
-                # Coba progressive dulu
-                video_stream = yt.streams.filter(progressive=True, file_extension='mp4', resolution=quality_format).first()
+                # Prioritas progressive (lebih cepat!)
+                video_stream = yt.streams.filter(
+                    progressive=True, 
+                    file_extension='mp4', 
+                    resolution=quality_format
+                ).first()
                 
-                # Kalau gak ada, coba adaptive
-                if not video_stream:
-                    video_stream = yt.streams.filter(adaptive=True, file_extension='mp4', resolution=quality_format, only_video=True).first()
-                    is_adaptive = True
-            
-            # Fallback ke kualitas terbaik
-            if not video_stream:
-                video_stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
-                if not video_stream:
-                    video_stream = yt.streams.filter(adaptive=True, file_extension='mp4', only_video=True).order_by('resolution').desc().first()
-                    is_adaptive = True
+                if video_stream:
+                    is_progressive = True
+                else:
+                    # Kalau tidak ada, coba adaptive
+                    if format_info and format_info.get('type') == 'adaptive':
+                        video_stream = yt.streams.filter(
+                            adaptive=True, 
+                            file_extension='mp4', 
+                            resolution=quality_format, 
+                            only_video=True
+                        ).first()
+            else:
+                # Default: progressive terbaik
+                video_stream = yt.streams.filter(
+                    progressive=True, 
+                    file_extension='mp4'
+                ).order_by('resolution').desc().first()
+                is_progressive = True
             
             if not video_stream:
                 return None, "Format tidak tersedia"
@@ -337,41 +363,52 @@ def download_media(yt, download_type, quality_format=None, format_info=None):
                 bytes_downloaded = total_size - bytes_remaining
                 percentage = int((bytes_downloaded / total_size) * 100)
                 progress_bar.progress(percentage)
-                status_text.text(f"📥 Downloading video... {percentage}%")
+                status_text.text(f"📥 Downloading... {percentage}%")
             
             yt.register_on_progress_callback(progress_callback)
             
-            # Download video
             status_text.text("📥 Downloading video...")
-            video_file = video_stream.download(output_path=temp_dir, filename_prefix="video_")
+            video_file = video_stream.download(output_path=temp_dir)
             
-            # Kalau adaptive, perlu download audio dan merge
-            if is_adaptive:
-                status_text.text("📥 Downloading audio...")
-                audio_stream = yt.streams.filter(only_audio=True).order_by('abr').desc().first()
-                audio_file = audio_stream.download(output_path=temp_dir, filename_prefix="audio_")
-                
-                # Merge menggunakan ffmpeg
-                status_text.text("🔄 Merging video and audio...")
-                output_filename = f"{yt.title}.mp4"
-                # Bersihkan nama file dari karakter ilegal
-                output_filename = "".join(c for c in output_filename if c.isalnum() or c in (' ', '-', '_', '.')).rstrip()
-                output_path = os.path.join(temp_dir, output_filename)
-                
-                # Gunakan ffmpeg untuk merge
-                import subprocess
-                cmd = f'ffmpeg -i "{video_file}" -i "{audio_file}" -c copy "{output_path}" -y -loglevel quiet'
-                
-                try:
-                    subprocess.run(cmd, shell=True, check=True)
-                    # Hapus file temporary
-                    os.remove(video_file)
-                    os.remove(audio_file)
-                    video_file = output_path
-                except:
-                    # Kalau ffmpeg gagal, return video aja (tanpa audio)
-                    status_text.text("⚠️ Merging failed, returning video only")
-                    pass
+            # Kalau progressive, langsung selesai
+            if is_progressive:
+                progress_bar.progress(100)
+                status_text.text("✅ Done!")
+                return video_file, yt.title
+            
+            # Kalau adaptive, perlu merge
+            status_text.text("📥 Downloading audio...")
+            audio_stream = yt.streams.filter(
+                only_audio=True
+            ).order_by('abr').desc().first()
+            
+            audio_file = audio_stream.download(
+                output_path=temp_dir, 
+                filename_prefix="audio_"
+            )
+            
+            # Merge dengan ffmpeg
+            status_text.text("🔄 Merging video and audio...")
+            output_filename = f"{yt.title}.mp4"
+            output_filename = "".join(
+                c for c in output_filename 
+                if c.isalnum() or c in (' ', '-', '_', '.')
+            ).rstrip()
+            output_path = os.path.join(temp_dir, output_filename)
+            
+            import subprocess
+            cmd = [
+                'ffmpeg', '-i', video_file, '-i', audio_file,
+                '-c', 'copy', output_path, '-y', '-loglevel', 'quiet'
+            ]
+            
+            try:
+                subprocess.run(cmd, check=True)
+                os.remove(video_file)
+                os.remove(audio_file)
+                video_file = output_path
+            except Exception as merge_error:
+                status_text.warning("⚠️ Merge gagal, returning video only (tanpa audio)")
             
             progress_bar.progress(100)
             status_text.text("✅ Done!")
@@ -381,11 +418,14 @@ def download_media(yt, download_type, quality_format=None, format_info=None):
     except Exception as e:
         return None, str(e)
 
+
+# ========== MAIN APP ==========
+
 # Header
 st.markdown("""
     <div class="header">
         <h1>🎥 YouTube Downloader</h1>
-        <p>Download video atau audio dari YouTube dengan kualitas pilihan Anda</p>
+        <p>Download video atau audio dari YouTube dengan mudah dan cepat</p>
     </div>
 """, unsafe_allow_html=True)
 
@@ -402,7 +442,7 @@ if url:
             yt = get_video_info(url)
             
             if yt:
-                # Tampilkan preview video
+                # Preview video
                 col1, col2 = st.columns([1, 2])
                 
                 with col1:
@@ -424,55 +464,49 @@ if url:
                     horizontal=True
                 )
                 
+                selected_quality = None
+                selected_format = None
+                
                 # Pilih kualitas
                 if download_type == "🎬 Video (MP4)":
-                    video_formats, _ = get_available_formats(yt)
+                    video_formats = get_available_formats(yt)
                     
                     if video_formats:
-                        # Tampilkan info ukuran file jika ada
                         quality_display = []
                         for f in video_formats:
                             size_mb = f.get('filesize', 0) / (1024 * 1024) if f.get('filesize') else 0
+                            speed_icon = "⚡" if f['type'] == 'progressive' else "🐌"
+                            
                             if size_mb > 0:
-                                quality_display.append(f"{f['quality']} (~{size_mb:.1f} MB)")
+                                quality_display.append(
+                                    f"{speed_icon} {f['quality']} (~{size_mb:.1f} MB)"
+                                )
                             else:
-                                quality_display.append(f['quality'])
+                                quality_display.append(f"{speed_icon} {f['quality']}")
                         
                         selected_index = st.selectbox(
                             "Pilih kualitas video:",
                             range(len(quality_display)),
                             format_func=lambda i: quality_display[i],
-                            help="Kualitas yang lebih tinggi = ukuran file lebih besar. Resolusi >720p membutuhkan ffmpeg."
+                            help="⚡ = Download cepat (sudah include audio)\n🐌 = Download lambat (perlu merge audio)"
                         )
                         
                         selected_format = video_formats[selected_index]
                         selected_quality = selected_format['quality']
                         
-                        # Info jika butuh merge
-                        if selected_format.get('type') == 'adaptive':
-                            st.info("ℹ️ Resolusi ini membutuhkan penggabungan video dan audio")
+                        # Info tambahan
+                        if selected_format['type'] == 'adaptive':
+                            st.info("ℹ️ Resolusi ini membutuhkan penggabungan video dan audio (lebih lama)")
                     else:
-                        selected_quality = None
-                        selected_format = None
                         st.info("📺 Menggunakan kualitas terbaik yang tersedia")
-                else:
-                    audio_qualities = ["320", "256", "192", "128"]
-                    selected_quality = st.selectbox(
-                        "Pilih kualitas audio:",
-                        ["320kbps", "256kbps", "192kbps", "128kbps"],
-                        index=2,
-                        help="Kualitas yang lebih tinggi = suara lebih jernih"
-                    )
-                    selected_quality = selected_quality.replace('kbps', '')
                 
                 # Tombol download
                 if st.button("⬇️ Download Sekarang", type="primary"):
-                    format_info = selected_format if download_type == "🎬 Video (MP4)" else None
                     filename, title = download_media(
                         yt, 
                         download_type, 
                         selected_quality,
-                        format_info
+                        selected_format
                     )
                     
                     if filename and os.path.exists(filename):
@@ -480,12 +514,17 @@ if url:
                         with open(filename, 'rb') as f:
                             file_data = f.read()
                         
-                        # Tentukan nama file untuk download
+                        # Tentukan nama file
                         file_ext = '.mp3' if download_type == "🎵 Audio (MP3)" else '.mp4'
                         download_filename = f"{title}{file_ext}"
+                        download_filename = "".join(
+                            c for c in download_filename 
+                            if c.isalnum() or c in (' ', '-', '_', '.')
+                        ).rstrip()
+                        
+                        st.success("✅ Download berhasil!")
                         
                         # Tombol download
-                        st.success("✅ Download berhasil!")
                         st.download_button(
                             label=f"💾 Simpan {download_filename}",
                             data=file_data,
@@ -493,7 +532,7 @@ if url:
                             mime='audio/mpeg' if file_ext == '.mp3' else 'video/mp4'
                         )
                         
-                        # Hapus file temporary
+                        # Cleanup
                         try:
                             os.remove(filename)
                         except:
@@ -505,15 +544,15 @@ if url:
     else:
         st.warning("⚠️ URL YouTube tidak valid. Pastikan Anda memasukkan link yang benar.")
 
-# Footer info
+# Footer
 st.markdown("---")
 st.markdown("""
-    <div style='text-align: center; color: white; padding: 2rem;'>
-        <p style='font-size: 0.9rem; opacity: 0.8;'>
-            💡 <strong>Tips:</strong> Pilih kualitas yang lebih rendah untuk download lebih cepat dan ukuran file lebih kecil
+    <div style='text-align: center; color: #94a3b8; padding: 2rem;'>
+        <p style='font-size: 0.9rem;'>
+            💡 <strong>Tips:</strong> Pilih format dengan ⚡ untuk download lebih cepat
         </p>
-        <p style='font-size: 0.8rem; opacity: 0.6; margin-top: 1rem;'>
-            Streamlit | Revaldy Hazza Daniswara
+        <p style='font-size: 0.85rem; opacity: 0.7; margin-top: 1rem;'>
+            Made with ❤️ using Streamlit | Revaldy Hazza Daniswara
         </p>
     </div>
 """, unsafe_allow_html=True)
