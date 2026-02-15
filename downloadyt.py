@@ -5,7 +5,19 @@ import os
 from pathlib import Path
 import tempfile
 import re
+import pytubefix
+from pytubefix import innertube
 
+# Workaround untuk error 403
+def fix_403_error():
+    """Fix untuk error 403 Forbidden"""
+    # Update client version yang lebih baru
+    innertube._default_clients["ANDROID"]["context"]["client"]["clientVersion"] = "19.09.36"
+    innertube._default_clients["IOS"]["context"]["client"]["clientVersion"] = "19.09.36"
+    innertube._default_clients["WEB"]["context"]["client"]["clientVersion"] = "2.20240304.00.00"
+
+# Panggil fix di awal
+fix_403_error()
 # Konfigurasi halaman
 st.set_page_config(
     page_title="YouTube Downloader",
