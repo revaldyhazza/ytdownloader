@@ -3,7 +3,6 @@ import yt_dlp
 import os
 import tempfile
 import re
-import json
 
 # Konfigurasi halaman
 st.set_page_config(
@@ -13,7 +12,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Custom CSS
+# Custom CSS (sama seperti sebelumnya)
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
@@ -166,15 +165,31 @@ def is_valid_youtube_url(url):
     return re.match(youtube_regex, url) is not None
 
 
+def get_base_ydl_opts():
+    """Konfigurasi dasar yt-dlp untuk bypass 403"""
+    return {
+        'quiet': True,
+        'no_warnings': True,
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'referer': 'https://www.youtube.com/',
+        'nocheckcertificate': True,
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-us,en;q=0.5',
+            'Sec-Fetch-Mode': 'navigate',
+        },
+    }
+
+
 def get_video_info(url):
     """Mendapatkan informasi video"""
     try:
-        ydl_opts = {
-            'quiet': True,
-            'no_warnings': True,
+        ydl_opts = get_base_ydl_opts()
+        ydl_opts.update({
             'extract_flat': False,
             'skip_download': True,
-        }
+        })
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -204,15 +219,11 @@ def get_available_formats(info):
         acodec = f.get('acodec', 'none')
         ext = f.get('ext', '')
         
-        # Filter: hanya video dengan codec valid dan extension mp4/webm
         if height and vcodec != 'none' and ext in ['mp4', 'webm']:
             quality = f"{height}p"
             filesize = f.get('filesize') or f.get('filesize_approx', 0)
-            
-            # Prioritas: progressive (video+audio) > adaptive video only
             has_audio = acodec != 'none'
             
-            # Simpan format terbaik per resolusi
             if quality not in seen_resolutions or (has_audio and not seen_resolutions[quality].get('has_audio')):
                 seen_resolutions[quality] = {
                     'quality': quality,
@@ -222,9 +233,11 @@ def get_available_formats(info):
                     'ext': ext
                 }
     
-    # Convert ke list dan sort
     video_formats = list(seen_resolutions.values())
     video_formats.sort(key=lambda x: x['height'], reverse=True)
+    
+    # Limit ke 720p untuk mengurangi kemungkinan error
+    video_formats = [f for f in video_formats if f['height'] <= 720]
     
     return video_formats
 
@@ -234,9 +247,11 @@ def download_media(url, download_type, quality_format=None):
     temp_dir = tempfile.gettempdir()
     
     try:
+        # Base options dengan bypass 403
+        ydl_opts = get_base_ydl_opts()
+        
         if download_type == "🎵 Audio (MP3)":
-            # Konfigurasi untuk audio
-            ydl_opts = {
+            ydl_opts.update({
                 'format': 'bestaudio/best',
                 'outtmpl': os.path.join(temp_dir, '%(title)s.%(ext)s'),
                 'postprocessors': [{
@@ -244,32 +259,24 @@ def download_media(url, download_type, quality_format=None):
                     'preferredcodec': 'mp3',
                     'preferredquality': '192',
                 }],
-                'quiet': False,
-                'no_warnings': True,
-            }
+            })
         else:
-            # Konfigurasi untuk video
             if quality_format:
                 height = quality_format.replace('p', '')
-                # Format: pilih video dengan height yang sesuai + audio terbaik
-                format_str = f'bestvideo[height<={height}][ext=mp4]+bestaudio[ext=m4a]/best[height<={height}]'
+                # Gunakan format yang lebih compatible
+                format_str = f'best[height<={height}][ext=mp4]/best[height<={height}]'
             else:
-                format_str = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best'
+                format_str = 'best[ext=mp4]/best'
             
-            ydl_opts = {
+            ydl_opts.update({
                 'format': format_str,
                 'outtmpl': os.path.join(temp_dir, '%(title)s.%(ext)s'),
                 'merge_output_format': 'mp4',
-                'quiet': False,
-                'no_warnings': True,
-            }
+            })
         
         # Progress tracking
         progress_bar = st.progress(0)
         status_text = st.empty()
-        
-        downloaded_bytes = [0]  # Gunakan list agar bisa dimodifikasi di nested function
-        total_bytes = [0]
         
         def progress_hook(d):
             if d['status'] == 'downloading':
@@ -277,13 +284,10 @@ def download_media(url, download_type, quality_format=None):
                 downloaded = d.get('downloaded_bytes', 0)
                 
                 if total > 0:
-                    downloaded_bytes[0] = downloaded
-                    total_bytes[0] = total
                     percentage = int((downloaded / total) * 100)
                     progress_bar.progress(min(percentage, 100))
                     status_text.text(f"📥 Downloading... {percentage}%")
                 else:
-                    # Fallback jika total tidak diketahui
                     mb = downloaded / (1024 * 1024)
                     status_text.text(f"📥 Downloading... {mb:.1f} MB")
             
@@ -292,23 +296,32 @@ def download_media(url, download_type, quality_format=None):
         
         ydl_opts['progress_hooks'] = [progress_hook]
         
-        # Download
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            
-            # Get filename
-            base_filename = ydl.prepare_filename(info)
-            
-            # Untuk audio, ekstensi akan berubah ke .mp3
-            if download_type == "🎵 Audio (MP3)":
-                filename = base_filename.rsplit('.', 1)[0] + '.mp3'
-            else:
-                filename = base_filename
-            
-            progress_bar.progress(100)
-            status_text.text("✅ Done!")
-            
-            return filename, info.get('title', 'video')
+        # Download dengan retry
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+                    
+                    base_filename = ydl.prepare_filename(info)
+                    
+                    if download_type == "🎵 Audio (MP3)":
+                        filename = base_filename.rsplit('.', 1)[0] + '.mp3'
+                    else:
+                        filename = base_filename
+                    
+                    progress_bar.progress(100)
+                    status_text.text("✅ Done!")
+                    
+                    return filename, info.get('title', 'video')
+                    
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    status_text.text(f"⏳ Retry {attempt + 1}/{max_retries}...")
+                    import time
+                    time.sleep(2)
+                else:
+                    raise e
     
     except Exception as e:
         return None, str(e)
@@ -323,6 +336,9 @@ st.markdown("""
         <p>Download video atau audio dari YouTube dengan mudah dan cepat</p>
     </div>
 """, unsafe_allow_html=True)
+
+# Tambahkan info disclaimer
+st.info("ℹ️ **Note:** Beberapa video mungkin dibatasi oleh YouTube. Jika gagal, coba video lain atau resolusi lebih rendah.")
 
 # Input URL
 url = st.text_input(
@@ -381,7 +397,7 @@ if url:
                             "Pilih kualitas video:",
                             range(len(quality_display)),
                             format_func=lambda i: quality_display[i],
-                            help="🔊 = Sudah include audio\n🔇 = Perlu merge audio (otomatis)"
+                            help="Resolusi maksimal dibatasi 720p untuk kompatibilitas"
                         )
                         
                         selected_quality = video_formats[selected_index]['quality']
@@ -390,50 +406,48 @@ if url:
                 
                 # Tombol download
                 if st.button("⬇️ Download Sekarang", type="primary"):
-                    filename, title = download_media(url, download_type, selected_quality)
-                    
-                    if filename and os.path.exists(filename):
-                        # Baca file
-                        with open(filename, 'rb') as f:
-                            file_data = f.read()
+                    with st.spinner("⏳ Processing..."):
+                        filename, title = download_media(url, download_type, selected_quality)
                         
-                        # Tentukan nama file
-                        file_ext = '.mp3' if download_type == "🎵 Audio (MP3)" else '.mp4'
-                        download_filename = f"{title}{file_ext}"
-                        
-                        # Clean filename
-                        download_filename = "".join(
-                            c for c in download_filename 
-                            if c.isalnum() or c in (' ', '-', '_', '.')
-                        ).rstrip()
-                        
-                        st.success("✅ Download berhasil!")
-                        
-                        st.download_button(
-                            label=f"💾 Simpan {download_filename}",
-                            data=file_data,
-                            file_name=download_filename,
-                            mime='audio/mpeg' if file_ext == '.mp3' else 'video/mp4'
-                        )
-                        
-                        # Cleanup
-                        try:
-                            os.remove(filename)
-                        except:
-                            pass
-                    else:
-                        st.error(f"❌ Gagal mendownload: {title}")
+                        if filename and os.path.exists(filename):
+                            with open(filename, 'rb') as f:
+                                file_data = f.read()
+                            
+                            file_ext = '.mp3' if download_type == "🎵 Audio (MP3)" else '.mp4'
+                            download_filename = f"{title}{file_ext}"
+                            
+                            download_filename = "".join(
+                                c for c in download_filename 
+                                if c.isalnum() or c in (' ', '-', '_', '.')
+                            ).rstrip()
+                            
+                            st.success("✅ Download berhasil!")
+                            
+                            st.download_button(
+                                label=f"💾 Simpan {download_filename}",
+                                data=file_data,
+                                file_name=download_filename,
+                                mime='audio/mpeg' if file_ext == '.mp3' else 'video/mp4'
+                            )
+                            
+                            try:
+                                os.remove(filename)
+                            except:
+                                pass
+                        else:
+                            st.error(f"❌ Gagal mendownload: {title}")
+                            st.info("💡 **Tips:** Coba video lain atau gunakan resolusi lebih rendah (360p/480p)")
             else:
-                st.error("❌ Tidak dapat mengambil informasi video. Pastikan URL valid dan video dapat diakses.")
+                st.error("❌ Tidak dapat mengambil informasi video.")
     else:
-        st.warning("⚠️ URL YouTube tidak valid. Pastikan Anda memasukkan link yang benar.")
+        st.warning("⚠️ URL YouTube tidak valid.")
 
 # Footer
 st.markdown("---")
 st.markdown("""
     <div style='text-align: center; color: #94a3b8; padding: 2rem;'>
         <p style='font-size: 0.9rem;'>
-            💡 <strong>Tips:</strong> Pilih format dengan 🔊 untuk hasil terbaik
+            💡 <strong>Tips:</strong> Jika download gagal, coba video lain atau resolusi lebih rendah
         </p>
         <p style='font-size: 0.85rem; opacity: 0.7; margin-top: 1rem;'>
             Made with ❤️ using Streamlit | Revaldy Hazza Daniswara
